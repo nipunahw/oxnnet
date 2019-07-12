@@ -25,14 +25,29 @@ class StandardFullInferer(object):
         y_out_list = []
         for i in range(0, num_batches):
             batch = full_batch[i*batch_size:min(len(vs), (i+1)*batch_size)]
-            batch= np.concatenate(batch)
+            result = np.zeros(tup_seg_size_in)
+            for j in range(len(batch), batch_size):
+                batch.append(result)
+            batch = np.concatenate(batch)
             y_out = sess.run(model.pred, feed_dict={model.X:batch}) #.reshape([len(batch)] + list(self.segment_size_out) + [1])
-            y_out_list = np.concatenate([y_out_list,y_out]) if not y_out_list == [] else y_out #.append(y_out)
+            # y_out_list = np.concatenate([y_out_list,y_out]) if not y_out_list == [] else y_out #.append(y_out)
+            y_out_list.append(y_out)
             print("Segmenting ", i+1, " of ", num_batches, y_out.shape, batch.shape)
-        v_out_shape = [len(vs)] + self.segment_size_out.tolist()
-        print(y_out_list.shape, np.concatenate([v.seg_arr.reshape([1]+list(v.seg_arr.shape)) for v in vsegs]).shape)
-        yr = y_out_list #np.concatenate(y_out_list) #.reshape(v_out_shape)
-        yr_labels = np.concatenate([v.seg_arr.reshape([1]+self.segment_size_out.tolist()) for v in vsegs])
+        # v_out_shape = [len(vs)] + self.segment_size_out.tolist()
+        # print(y_out_list.shape, np.concatenate([v.seg_arr.reshape([1]+list(v.seg_arr.shape)) for v in vsegs]).shape)
+        # yr = y_out_list #np.concatenate(y_out_list) #.reshape(v_out_shape)
+        # vseg_arr = [v.seg_arr for v in vsegs]
+        # seg_pad = np.zeros(tuple(self.segment_size_out.tolist()))
+        # for i in range(len(vseg_arr), (num_batches * batch_size)):
+        #     vseg_arr.append(seg_pad)
+        # yr_labels = np.concatenate([v.seg_arr.reshape([1]+self.segment_size_out.tolist()) for v in vseg_arr])
+        v_out_shape = [num_batches * batch_size] + self.segment_size_out.tolist()
+        yr = np.vstack(y_out_list).reshape(v_out_shape)
+        vseg_arr = [v.seg_arr for v in vsegs]
+        seg_pad = np.zeros(tuple(self.segment_size_out.tolist()))
+        for i in range(len(vseg_arr), (num_batches * batch_size)):
+            vseg_arr.append(seg_pad)
+        yr_labels = np.vstack(vseg_arr).reshape(v_out_shape)
         dice_segments = 2*np.sum(yr*yr_labels)/(np.sum(yr)+np.sum(yr_labels))
         print("Full DICE: ", dice_segments, "No:", len(vsegs))
         return yr_labels, yr

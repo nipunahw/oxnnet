@@ -49,24 +49,71 @@ class AbstractDataLoader(object):
         Arguments:
         ttv_list: list of three integers for the number of cases [train, test, validate]
         """
-        tups = []
-        for dir_name in os.listdir(data_dir):
-            full_dir = os.path.join(data_dir, dir_name)
-            f = [os.path.join(full_dir, x)
-                 for x in os.listdir(full_dir)
-                 if 'mask' not in x and 'thresh' not in x and
-                 'distmap' not in x and
-                 os.path.isfile(os.path.join(full_dir, x))][0]
-            m = [os.path.join(full_dir, x)
-                 for x in os.listdir(full_dir)
-                 if 'mask' in x and 'thresh' not in x][0]
-            s = [os.path.join(full_dir, x) for x in os.listdir(full_dir)
-                 if 'mask' not in x and 'thresh' in x][0]
-            tups.append((f, m, s))
-        random.shuffle(tups)
-        self.train_tups = tups[0:ttv_list[0]]
-        self.validation_tups = tups[ttv_list[0]:ttv_list[0]+ttv_list[1]]
-        self.test_tups = tups[ttv_list[0]+ttv_list[1]:ttv_list[0]+ttv_list[1]+ttv_list[2]]
+        # tups = []
+        # for dir_name in os.listdir(data_dir):
+        #     full_dir = os.path.join(data_dir, dir_name)
+        #     f = [os.path.join(full_dir, x)
+        #          for x in os.listdir(full_dir)
+        #          if 'mask' not in x and 'thresh' not in x and
+        #          'distmap' not in x and
+        #          os.path.isfile(os.path.join(full_dir, x))][0]
+        #     m = [os.path.join(full_dir, x)
+        #          for x in os.listdir(full_dir)
+        #          if 'mask' in x and 'thresh' not in x][0]
+        #     s = [os.path.join(full_dir, x) for x in os.listdir(full_dir)
+        #          if 'mask' not in x and 'thresh' in x][0]
+        #     tups.append((f, m, s))
+        # random.shuffle(tups)
+        # self.train_tups = tups[0:ttv_list[0]]
+        # self.validation_tups = tups[ttv_list[0]:ttv_list[0]+ttv_list[1]]
+        # self.test_tups = tups[ttv_list[0]+ttv_list[1]:ttv_list[0]+ttv_list[1]+ttv_list[2]]
+
+        train_tups = []
+        validation_tups = []
+        test_tups = []
+
+        # Training set
+        train_dir = data_dir + "Training/"
+        for d in os.listdir(train_dir):
+            f = [os.path.join(train_dir, d, x) for x in os.listdir(os.path.join(train_dir, d)) if
+                 'mask' not in x and 'thresh' not in x and 'distmap' not in x and os.path.isfile(
+                     os.path.join(train_dir, d, x))][0]
+            m = [os.path.join(train_dir, d, x) for x in os.listdir(os.path.join(train_dir, d)) if
+                 'mask' in x and 'thresh' not in x][0]
+            s = [os.path.join(train_dir, d, x) for x in os.listdir(os.path.join(train_dir, d)) if
+                 'mask' not in x and 'thresh' in x][0]
+            train_tups.append((f, m, s))
+
+        # Validation set
+        valid_dir = data_dir + "Validation/"
+        for d in os.listdir(valid_dir):
+            f = [os.path.join(valid_dir, d, x) for x in os.listdir(os.path.join(valid_dir, d)) if
+                 'mask' not in x and 'thresh' not in x and 'distmap' not in x and os.path.isfile(
+                     os.path.join(valid_dir, d, x))][0]
+            m = [os.path.join(valid_dir, d, x) for x in os.listdir(os.path.join(valid_dir, d)) if
+                 'mask' in x and 'thresh' not in x][0]
+            s = [os.path.join(valid_dir, d, x) for x in os.listdir(os.path.join(valid_dir, d)) if
+                 'mask' not in x and 'thresh' in x][0]
+            validation_tups.append((f, m, s))
+
+        # Test set
+        test_dir = data_dir + "Test/"
+        for d in os.listdir(test_dir):
+            f = [os.path.join(test_dir, d, x) for x in os.listdir(os.path.join(test_dir, d)) if
+                 'mask' not in x and 'thresh' not in x and 'distmap' not in x and os.path.isfile(
+                     os.path.join(test_dir, d, x))][0]
+            m = [os.path.join(test_dir, d, x) for x in os.listdir(os.path.join(test_dir, d)) if
+                 'mask' in x and 'thresh' not in x][0]
+            s = [os.path.join(test_dir, d, x) for x in os.listdir(os.path.join(test_dir, d)) if
+                 'mask' not in x and 'thresh' in x][0]
+            test_tups.append((f, m, s))
+
+        random.shuffle(train_tups)
+        random.shuffle(validation_tups)
+
+        self.train_tups = train_tups
+        self.validation_tups = validation_tups
+        self.test_tups = test_tups
 
     def get_batch(self, tup):
         """Given a tuple of filepaths return a list of tuples of patches.
@@ -97,26 +144,20 @@ class StandardDataLoader(AbstractDataLoader):
         vimgs, vsegs, vmasks = self.vol_s(tup, self.crop_by)
         pos_samps = [(v.seg_arr, vseg.seg_arr) for v, vseg
                      in zip(vimgs, vsegs) if np.any(vseg.seg_arr)]
-        pos_samps_packed = np.vstack([seg_arr for _, seg_arr in pos_samps]).reshape(-1)
-        one_hot_targets_pos = np.sum(np.eye(self.nb_classes)[pos_samps_packed],axis=0)
-        if self.aug_pos_samps:
-            pos_samps = pos_samps + [(np.fliplr(v1), np.fliplr(v2)) for v1, v2 in pos_samps] #+ [(np.rot90(v1), np.rot90(v2)) for v1, v2 in pos_samps]
-            #[(np.rot90(np.rot90(v1)), np.rot90(np.rot90(v2)))
-            # for v1, v2 in pos_samps] +
-            #[(np.rot90(np.rot90(np.rot90(v1))), np.rot90(np.rot90(np.rot90(v2))))
-            # for v1, v2 in pos_samps])
+        # pos_samps_packed = np.vstack([seg_arr for _, seg_arr in pos_samps]).reshape(-1)
+        # one_hot_targets_pos = np.sum(np.eye(self.nb_classes)[pos_samps_packed], axis=0)
         neg_samp_list = [(v.seg_arr, vseg.seg_arr) for v, vseg, vmask
                          in zip(vimgs, vsegs, vmasks) if not np.any(vseg.seg_arr)] # and np.mean(vmask.seg_arr)>0.5]
         pos_vs, pos_vseg = list(zip(*pos_samps))
         neg_samps = (random.sample(neg_samp_list, min(len(neg_samp_list), len(pos_samps)))
                      if self.equal_class_size else neg_samp_list)
         neg_vs, neg_vseg = [x[0] for x in neg_samps], [x[1] for x in neg_samps]
-        neg_samps_packed = np.vstack([seg_arr for _, seg_arr in neg_samps]).reshape(-1)
-        one_hot_targets_neg = np.sum(np.eye(self.nb_classes)[neg_samps_packed],axis=0)
-        weights = one_hot_targets_neg + one_hot_targets_pos
+        # neg_samps_packed = np.vstack([seg_arr for _, seg_arr in neg_samps]).reshape(-1)
+        # one_hot_targets_neg = np.sum(np.eye(self.nb_classes)[neg_samps_packed], axis=0)
+        # weights = one_hot_targets_neg + one_hot_targets_pos
         #weights = weights/np.sum(weights)
-        weights = tuple(weights)
-        print(weights)
+        # weights = tuple(weights)
+        # print(weights)
         batchx += pos_vs
         batchy += pos_vseg
         if self.neg_samps:
@@ -125,7 +166,8 @@ class StandardDataLoader(AbstractDataLoader):
         print('Done reading img {} with number of segments {} of size {} MBs'
               .format(tup[0], len(batchx), (sum([x.nbytes for x in batchx]) +
                                             sum([x.nbytes for x in batchy]))/10**6))
-        return np.array(batchx), np.array(batchy), weights 
+        # return np.array(batchx), np.array(batchy), weights
+        return np.array(batchx), np.array(batchy), (len(pos_vs), len(neg_vs))
 
     def vol_s(self, tup, crop_by=0):
         img_file_path, mask_file_path, seg_file_path = tup

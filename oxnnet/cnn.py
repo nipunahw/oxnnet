@@ -40,8 +40,8 @@ class CNN(object):
         full_validation_metrics = {k[0]:[] for  k in validation_tups}
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
-            write_csv(os.path.join(save_dir, 'log.csv'), train_loss_iterations)
-            write_csv(os.path.join(save_dir, 'full_validation_log.csv'), full_validation_metrics)
+        write_csv(os.path.join(save_dir, 'log.csv'), train_loss_iterations)
+        write_csv(os.path.join(save_dir, 'full_validation_log.csv'), full_validation_metrics)
         with tf.Graph().as_default():
             config = tf.ConfigProto()
             config.gpu_options.allow_growth = True
@@ -54,17 +54,21 @@ class CNN(object):
             model_test = self.module.Model(batch_size, True)
             inferer = model_test.build_full_inferer()
             avg_time = 0
-            global_step = model.global_step #tf.Variable(0, name='global_step', trainable=False)
-            lr = model.lr #tf.train.exponential_decay(learning_rate, global_step, lr_steps, lr_decay, staircase=True) if lr_steps else learning_rate
-            optimizer = model.optimizer #tf.train.AdamOptimizer(lr  of decay_steps)
+            # global_step = model.global_step #tf.Variable(0, name='global_step', trainable=False)
+            global_step = tf.Variable(0, name='global_step', trainable=False)
+            lr = tf.train.exponential_decay(learning_rate, global_step, lr_steps, lr_decay, staircase=True) if lr_steps else learning_rate
+            # optimizer = model.optimizer #tf.train.AdamOptimizer(lr  of decay_steps)
+            # lr = model.lr #tf.train.exponential_decay(learning_rate, global_step, lr_steps, lr_decay, staircase=True) if lr_steps else learning_rate
+            optimizer = tf.train.AdamOptimizer(lr)
             tf.summary.scalar('learning_rate', lr)
             update_op = self._avg(model.loss_op, optimizer, global_step) if avg else optimizer.minimize(model.loss_op,
+                                                                                                        colocate_gradients_with_ops=True,
                                                                                                         global_step=global_step)
             #update_op = optimizer.minimize(model.loss_op,
             #                               global_step=global_step)
 
-            #config = tf.ConfigProto()
-            #config.gpu_options.allow_growth = True
+            config = tf.ConfigProto()
+            config.gpu_options.allow_growth = True
             with tf.Session(config=config) as sess:
                 merged = s.summarize_variables()
                 merged = tf.summary.merge_all()
@@ -194,7 +198,7 @@ class CNN(object):
                                        for k, v in full_validation_metrics.items()},
                                       mode='a',
                                       header=False)
-                        #Run optimiser after saving/evaluating the model 
+                        #Run optimiser after saving/evaluating the model
                         sess.run(update_op)
                 except tf.errors.OutOfRangeError:
                     print('Done training')
