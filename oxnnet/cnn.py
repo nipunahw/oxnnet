@@ -3,12 +3,15 @@ import os
 import json
 import math
 import time
-from datetime import timedelta
+from datetime import timedelta, datetime
 import tflearn
 import tflearn.helpers.summarizer as s
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+
 
 def write_csv(fname, my_dict, mode='w', header=True):
     """Writes (appends or with header) csv of validation metrics"""
@@ -25,7 +28,8 @@ class CNN(object):
         self.module = module
 
     def train(self, tf_record_dir, save_dir, num_epochs, batch_size, num_save_every,
-              model_file=None, early_stop=False, full_eval_every=0, learning_rate=1e-3, lr_steps=0, lr_decay=0.96, avg = False):
+              model_file=None, early_stop=False, full_eval_every=0, learning_rate=1e-3, lr_steps=0, lr_decay=0.96, avg=False):
+        start_time = datetime.now()
         """Trains the Model defined in module on the records in tf_record_dir"""
         train_loss_iterations = {'iteration': [], 'epoch': [], 'train_loss': [], 'train_dice': [],
                                  'train_mse': [], 'val_loss': [], 'val_dice': [], 'val_mse': []}
@@ -40,11 +44,9 @@ class CNN(object):
         full_validation_metrics = {k[0]:[] for  k in validation_tups}
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
-            write_csv(os.path.join(save_dir, 'log.csv'), train_loss_iterations)
-            write_csv(os.path.join(save_dir, 'full_validation_log.csv'), full_validation_metrics)
+        write_csv(os.path.join(save_dir, 'log.csv'), train_loss_iterations)
+        write_csv(os.path.join(save_dir, 'full_validation_log.csv'), full_validation_metrics)
         with tf.Graph().as_default():
-            config = tf.ConfigProto()
-            config.gpu_options.allow_growth = True
             tflearn.config.init_training_mode()
             with tf.name_scope('training'):
                 model = self.module.Model(batch_size, False, tf_record_dir, num_epochs)
@@ -54,17 +56,19 @@ class CNN(object):
             model_test = self.module.Model(batch_size, True)
             inferer = model_test.build_full_inferer()
             avg_time = 0
-            global_step = model.global_step #tf.Variable(0, name='global_step', trainable=False)
-            lr = model.lr #tf.train.exponential_decay(learning_rate, global_step, lr_steps, lr_decay, staircase=True) if lr_steps else learning_rate
-            optimizer = model.optimizer #tf.train.AdamOptimizer(lr  of decay_steps)
+            # global_step = model.global_step #tf.Variable(0, name='global_step', trainable=False)
+            global_step = tf.Variable(0, name='global_step', trainable=False)
+            lr = tf.train.exponential_decay(learning_rate, global_step, lr_steps, lr_decay, staircase=True) if lr_steps else learning_rate
+            # optimizer = model.optimizer #tf.train.AdamOptimizer(lr  of decay_steps)
+            # lr = model.lr #tf.train.exponential_decay(learning_rate, global_step, lr_steps, lr_decay, staircase=True) if lr_steps else learning_rate
+            optimizer = tf.train.AdamOptimizer(lr)
             tf.summary.scalar('learning_rate', lr)
             update_op = self._avg(model.loss_op, optimizer, global_step) if avg else optimizer.minimize(model.loss_op,
+                                                                                                        colocate_gradients_with_ops=True,
                                                                                                         global_step=global_step)
             #update_op = optimizer.minimize(model.loss_op,
             #                               global_step=global_step)
 
-            #config = tf.ConfigProto()
-            #config.gpu_options.allow_growth = True
             with tf.Session(config=config) as sess:
                 merged = s.summarize_variables()
                 merged = tf.summary.merge_all()
@@ -194,7 +198,7 @@ class CNN(object):
                                        for k, v in full_validation_metrics.items()},
                                       mode='a',
                                       header=False)
-                        #Run optimiser after saving/evaluating the model 
+                        #Run optimiser after saving/evaluating the model
                         sess.run(update_op)
                 except tf.errors.OutOfRangeError:
                     print('Done training')
@@ -202,7 +206,9 @@ class CNN(object):
                     checkpoint_path = os.path.join(save_dir, 'model.ckpt')
                     saver.save(sess, checkpoint_path, global_step=global_step)
                     coord.request_stop()
+                    end_time = datetime.now()
                 print('Finished')
+                print("Elapsed time:", end_time-start_time)
 
     def test(self, save_dir, test_data, model_file, batch_size, avg=False):
         #with tf.get_default_graph().as_default():
