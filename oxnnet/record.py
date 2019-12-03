@@ -69,12 +69,65 @@ class StandardProcessTup(AbstractProcessTup):
 
         filename = os.path.join(self.output_dir, name + '.tfrecords')
         print('Writing', filename)
-        writer = tf.python_io.TFRecordWriter(filename)
+        writer = tf.io.TFRecordWriter(filename)
         for index in range(volumes.shape[0]):
             volume_raw = volumes[index].ravel()
             label_raw = labels[index].tostring()
             example = tf.train.Example(
                 features=self.features_encode(label_raw, volume_raw, rows, cols, depth)
+            )
+            writer.write(example.SerializeToString())
+        writer.close()
+
+class PowerDopplerProcessTup(AbstractProcessTup):
+
+    def features_encode(self, label_raw, volume_raw, power_doppler_raw, rows, cols, depth):
+        features = tf.train.Features(
+            feature={
+                'height': _int64_feature(rows),
+                'width': _int64_feature(cols),
+                'depth': _int64_feature(depth),
+                'volume_seg': _bytes_feature(label_raw),
+                'volume_raw': _floats_feature(volume_raw),
+                'power_doppler_raw': _floats_feature(power_doppler_raw),
+            }
+        )
+        return features
+
+    def features_decode(self, serialized_example):
+        example = tf.parse_single_example(
+            serialized_example,
+            features={
+                'volume_raw': tf.FixedLenFeature([np.prod(self.data_loader.segment_size)], tf.float32),
+                'power_doppler_raw': tf.FixedLenFeature([np.prod(self.data_loader.segment_size)], tf.float32),
+                'volume_seg': tf.FixedLenFeature([], tf.string),
+            }
+        )
+        volume = example['volume_raw']
+        volume.set_shape([np.prod(self.data_loader.segment_size)])
+
+        power_doppler = example['power_doppler_raw']
+        power_doppler.set_shape([np.prod(self.data_loader.segment_size)])
+
+        label = tf.decode_raw(example['volume_seg'], tf.uint8)
+        label.set_shape([np.prod(self.data_loader.segment_size-2*self.data_loader.crop_by)])
+        return volume, label, power_doppler
+
+    def convert_to(self, *vals):
+        volumes, labels, power_doppler, name = vals
+        rows = volumes.shape[1]
+        cols = volumes.shape[2]
+        depth = volumes.shape[3]
+
+        filename = os.path.join(self.output_dir, name + '.tfrecords')
+        print('Writing', filename)
+        writer = tf.io.TFRecordWriter(filename)
+        for index in range(volumes.shape[0]):
+            volume_raw = volumes[index].ravel()
+            power_doppler_raw = power_doppler[index].ravel()
+            label_raw = labels[index].tostring()
+            example = tf.train.Example(
+                features=self.features_encode(label_raw, volume_raw, power_doppler_raw, rows, cols, depth)
             )
             writer.write(example.SerializeToString())
         writer.close()
@@ -247,7 +300,7 @@ class DenoiseProcessTup(AbstractProcessTup):
         writer.close()
 
 class RecordWriter(object):
-    def __init__(self, data_loader, ProcessTupClass, num_of_threads=4):
+    def __init__(self, data_loader, ProcessTupClass, num_of_threads=10):
         self.data_loader = data_loader
         self.ProcessTupClass = ProcessTupClass
         self.num_of_threads = num_of_threads
@@ -301,9 +354,9 @@ class RecordReader(object):
         filenames = glob.glob(search_string)
         dataset = tf.data.TFRecordDataset(filenames)
         dataset = dataset.map(self.ptc.features_decode)
-        dataset = dataset.shuffle(1000 + 3 * batch_size)
+        dataset = dataset.shuffle(1000 + 3 * batch_size//2)
         dataset = dataset.repeat(num_epochs)
-        dataset = dataset.batch(batch_size)
+        dataset = dataset.batch(batch_size//2)
         iterator = dataset.make_one_shot_iterator()
         return iterator.get_next()
         

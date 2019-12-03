@@ -14,8 +14,8 @@ segment_size_out = np.array([34]*3) #calc_out_shape(segment_size_in) #-16
 crop_by = (segment_size_in-segment_size_out)//2 
 #train_eval_test_no = [1000,300,1000]
 train_eval_test_no = [75, 15, 10]
-stride = np.array([34]*3,dtype=np.int)
-stride_test = np.array([34]*3,dtype=np.int)
+stride = np.array([34]*3, dtype=np.int)
+stride_test = np.array([34]*3, dtype=np.int)
 batch_size_test = 1 
 lowest_res_size = 5
 
@@ -72,15 +72,21 @@ class Model(object):
                         with tf.variable_scope("pred"):
                             softmax_logits = tf.nn.softmax(logits)
                             pred = tf.cast(tf.argmax(softmax_logits, axis=4), tf.float32)
+                            # pred = tf.sigmoid(logits)
                             preds.append(pred)
                         with tf.variable_scope("dice"):
                             self.dice_op = tf.divide(2 * tf.reduce_sum(tf.multiply(softmax_logits, Y_A[gpu_id])),
                                                      tf.reduce_sum(pred) + tf.reduce_sum(Y_A[gpu_id]), name='dice')
+                            # self.dice_op = tf.divide(2 * tf.reduce_sum(tf.multiply(pred, Y_A[gpu_id])),
+                            #                     tf.reduce_sum(pred) + tf.reduce_sum(Y_A[gpu_id]), name='dice')
+                            # dices.append(dice_op)
                         with tf.variable_scope("loss"):
                             class_weight = tf.constant(weighting, tf.float32)
                             weighted_logits = tf.multiply(logits, tf.reshape(class_weight, [-1, 1, 1, 1, 2]))
                             loss_op = tf.nn.softmax_cross_entropy_with_logits(logits=weighted_logits,
                                                                               labels=Y_A[gpu_id])
+                            # loss_op = tf.nn.sigmoid_cross_entropy_with_logits(logits=logits, labels=Y_A[gpu_id])
+                            losses.append(loss_op)
                         # Choose the metrics to compute:
                         names_to_values, names_to_updates = tf.contrib.metrics.aggregate_metric_map({
                             'accuracy': tf.contrib.metrics.streaming_accuracy(softmax_logits, Y_A[gpu_id]),
@@ -88,9 +94,15 @@ class Model(object):
                             'recall': tf.contrib.metrics.streaming_recall(softmax_logits, Y_A[gpu_id]),
                             'mse': tf.contrib.metrics.streaming_mean_squared_error(softmax_logits, Y_A[gpu_id]),
                         })
-                        losses.append(loss_op)
+                        # names_to_values, names_to_updates = tf.contrib.metrics.aggregate_metric_map({
+                        #     'accuracy': tf.contrib.metrics.streaming_accuracy(pred, Y_A[gpu_id]),
+                        #     'precision': tf.contrib.metrics.streaming_precision(pred, Y_A[gpu_id]),
+                        #     'recall': tf.contrib.metrics.streaming_recall(pred, Y_A[gpu_id]),
+                        #     'mse': tf.contrib.metrics.streaming_mean_squared_error(pred, Y_A[gpu_id]),
+                        # })
             self.loss_op = tf.reduce_mean(tf.concat(losses, axis=0))
             self.pred = tf.cast(tf.concat(preds, axis=0), tf.float32)
+            # self.dice_op = tf.cast(tf.concat(dices, axis=0), tf.float32)
             self.mse = names_to_values['mse']
             with tf.variable_scope("metrics"):
                 self.metric_update_ops = list(names_to_updates.values())
@@ -110,48 +122,48 @@ class Model(object):
         return StandardFeatsWriter(segment_size_in_test, segment_size_out, crop_by, stride_test, self.batch_size, 16)
 
     def build_net(self, X, reuse=False, segment_size_in=segment_size_in,feats=None):
-        # Using TFLearn wrappers for network building
         init = tflearn.initializations.xavier()
-        with tf.variable_scope("level1", reuse=reuse):
-            net1 = tflearn.layers.conv_3d(X, 16, 3, activation='linear',padding='valid',regularizer='L2',reuse=reuse,scope='conv1-1', weights_init=init)
+        with tf.variable_scope("level1"):
+            net1 = tflearn.layers.conv_3d(X, 32, 3, activation='linear', padding='valid', regularizer='L2', reuse=reuse,scope='conv1-1', weights_init=init)
             net1 = tflearn.activation(net1, 'prelu')
 
-        with tf.variable_scope("level2", reuse=reuse):
-            net2_in = tflearn.layers.conv_3d(net1, 32, 2, strides=2, activation='prelu',padding='valid',regularizer='L2',reuse=reuse,scope='ds1', weights_init=init)
-            net2 = tflearn.layers.conv_3d(net2_in, 32, 3, activation='linear',padding='valid', regularizer='L2',reuse=reuse,scope='conv2-1', weights_init=init)
+        with tf.variable_scope("level2"):
+            net2_in = tflearn.layers.conv_3d(net1, 64, 2, strides=2, activation='prelu', padding='valid', regularizer='L2', reuse=reuse, scope='ds1', weights_init=init)
+            net2 = tflearn.layers.conv_3d(net2_in, 64, 3, activation='linear', padding='valid', regularizer='L2', reuse=reuse, scope='conv2-1', weights_init=init)
             net2 = tflearn.activation(net2, 'prelu')
 
         with tf.variable_scope("level3"):
-            net3_in = tflearn.layers.conv_3d(net2, 64, 2, strides=2, activation='prelu',padding='valid',regularizer='L2',reuse=reuse,scope='ds2', weights_init=init)
-            net3 = tflearn.layers.conv_3d(net3_in, 64, 3, activation='linear',padding='valid',regularizer='L2',reuse=reuse,scope='conv3-1', weights_init=init)
+            net3_in = tflearn.layers.conv_3d(net2, 128, 2, strides=2, activation='prelu', padding='valid', regularizer='L2', reuse=reuse, scope='ds2', weights_init=init)
+            net3 = tflearn.layers.conv_3d(net3_in, 128, 3, activation='linear', padding='valid', regularizer='L2', reuse=reuse, scope='conv3-1', weights_init=init)
             net3 = tflearn.activation(net3, 'prelu')
 
         with tf.variable_scope("level4"):
-            net4_in = tflearn.layers.conv_3d(net3, 128, 2, strides=2, activation='prelu',padding='valid',regularizer='L2',reuse=reuse,scope='ds3', weights_init=init)
-            net4 = tflearn.layers.conv_3d(net4_in, 128, 3, activation='linear',padding='valid',regularizer='L2',reuse=reuse,scope='conv4-1', weights_init=init)
+            net4_in = tflearn.layers.conv_3d(net3, 256, 2, strides=2, activation='prelu', padding='valid', regularizer='L2', reuse=reuse, scope='ds3', weights_init=init)
+            net4 = tflearn.layers.conv_3d(net4_in, 256, 3, activation='linear', padding='valid', regularizer='L2', reuse=reuse, scope='conv4-1', weights_init=init)
             net4 = tflearn.activation(net4, 'prelu')
 
         with tf.variable_scope("level5"):
-            net5 = tflearn.layers.conv.conv_3d_transpose(net4, 64, 2, [12]*3,strides=2, activation='prelu',padding='same',regularizer='L2',reuse=reuse,scope='trans2', weights_init=init)
-            net5 = tflearn.layers.merge_ops.merge([net5, tf.slice(net3,[0]+[(16-12)//2]*3+[0],[-1]+[12]*3+[64])],'elemwise_sum',name='merge5')
-            net5 = tflearn.layers.conv_3d(net5, 64, 3, activation='linear',padding='valid',regularizer='L2',reuse=reuse,scope='conv5-1', weights_init=init)
+            net5 = tflearn.layers.conv.conv_3d_transpose(net4, 128, 2, [12] * 3, strides=2, activation='prelu',padding='valid', regularizer='L2', reuse=reuse, scope='trans2', weights_init=init)
+            net5 = tflearn.layers.merge_ops.merge([net5, tf.slice(net3, [0] + [(16 - 12) // 2] * 3 + [0], [-1] + [12] * 3 + [128])], 'elemwise_sum', name='merge5')
+            net5 = tflearn.layers.conv_3d(net5, 128, 3, activation='linear', padding='valid', regularizer='L2', reuse=reuse, scope='conv5-1', weights_init=init)
             net5 = tflearn.activation(net5, 'prelu')
 
         with tf.variable_scope("level6"):
-            net6 = tflearn.layers.conv.conv_3d_transpose(net5, 32, 2, [20]*3,strides=2, activation='prelu',padding='same',regularizer='L2',reuse=reuse,scope='trans3', weights_init=init)
-            net6 = tflearn.layers.merge_ops.merge([net6, tf.slice(net2,[0]+[(36-20)//2]*3+[0],[-1]+[20]*3+[32])],'elemwise_sum',name='merge6')
-            net6 = tflearn.layers.conv_3d(net6, 32, 3, activation='linear',padding='valid',regularizer='L2',reuse=reuse,scope='conv6-1', weights_init=init)
+            net6 = tflearn.layers.conv.conv_3d_transpose(net5, 64, 2, [20] * 3, strides=2, activation='prelu', padding='valid', regularizer='L2', reuse=reuse, scope='trans3', weights_init=init)
+            net6 = tflearn.layers.merge_ops.merge([net6, tf.slice(net2,[0]+[(36-20)//2]*3+[0],[-1]+[20]*3+[64])],'elemwise_sum',name='merge6')
+            net6 = tflearn.layers.conv_3d(net6, 64, 3, activation='linear', padding='valid', regularizer='L2', reuse=reuse, scope='conv6-1', weights_init=init)
             net6 = tflearn.activation(net6, 'prelu')
 
         with tf.variable_scope("level7"):
-            net7 = tflearn.layers.conv.conv_3d_transpose(net6, 16, 2, [36]*3,strides=2, activation='prelu',padding='same',regularizer='L2',reuse=reuse,scope='trans4', weights_init=init)
-            net7 = tflearn.layers.merge_ops.merge([net7, tf.slice(net1,[0]+[(74-36)//2]*3+[0],[-1]+[36]*3+[16])],'elemwise_sum',name='merge9')
-            net7 = tflearn.layers.conv_3d(net7, 16, 3, activation='linear',padding='valid',regularizer='L2',reuse=reuse,scope='conv9-1', weights_init=init)
+            net7 = tflearn.layers.conv.conv_3d_transpose(net6, 32, 2, [36] * 3, strides=2, activation='prelu', padding='valid', regularizer='L2', reuse=reuse, scope='trans4', weights_init=init)
+            net7 = tflearn.layers.merge_ops.merge([net7, tf.slice(net1,[0]+[(74-36)//2]*3+[0],[-1]+[36]*3+[32])],'elemwise_sum',name='merge9')
+            net7 = tflearn.layers.conv_3d(net7, 32, 3, activation='linear', padding='valid', regularizer='L2', reuse=reuse, scope='conv9-1', weights_init=init)
             net7 = tflearn.activation(net7, 'prelu')
 
         with tf.variable_scope("out"):
-            net_fc1 = tflearn.layers.conv_3d(net7, 16, 1, activation='linear',padding='valid',regularizer='L2',reuse=reuse,scope='fc1', weights_init=init)
+            net_fc1 = tflearn.layers.conv_3d(net7, 32, 1, activation='linear', padding='valid', regularizer='L2', reuse=reuse, scope='fc1', weights_init=init)
+            # net_fc1 = tflearn.layers.core.dropout(net_fc1, 0.5)
             net_fc1 = tflearn.activation(net_fc1, 'prelu')
-            net_out = tflearn.layers.conv_3d(net_fc1, 2, 1, activation='linear',padding='valid',regularizer='L2',reuse=reuse,scope='output',weights_init=init)
+            net_out = tflearn.layers.conv_3d(net_fc1, 2, 1, activation='linear', padding='valid', regularizer='L2', reuse=reuse, scope='output', weights_init=init)
 
-        return net_out, net1
+        return net_out, net_fc1
